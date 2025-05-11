@@ -14,6 +14,18 @@ messages = {}         # nickname → [response1, response2]
 player_config = {}    # nickname → настройки
 CONFIG_FILE = "player_config.json"
 
+color_table = {
+    "1": "white",
+    "2": "red",
+    "3": "aqua",
+    "4": "green",
+    "5": "yellow",
+    "6": "blue",
+    "7": "light_purple",
+    "8": "gray",
+    "9": "gold"
+}
+
 def encode_unicode_escaped(text):
     return text.encode("unicode_escape").decode("ascii")
 
@@ -30,8 +42,8 @@ def load_config():
 load_config()
 
 @app.route("/chat", methods=["POST"])
-def chat():
-    data = request.get_json()
+async def chat():
+    data = await request.get_json()
     nickname = data.get("nickname", "").lower()
     text = data.get("text")
 
@@ -47,30 +59,42 @@ def chat():
             "bold": False
         }
 
-    if text.lower().startswith("!настройка"):
+    lower = text.lower()
+
+    if lower.startswith("!help"):
+        help_text = "Команды:\n"
+        help_text += "!set color=<номер> — цвет текста\n"
+        help_text += "!set bold=yes|no — жирный текст\n"
+        help_text += "\nЦвета:\n"
+
+        for num, color in color_table.items():
+            entry = {
+                "text": encode_unicode_escaped(f"[{num}] Пример текста цвета {color}"),
+                "color": color
+            }
+            messages[nickname].append([entry])
+
+        messages[nickname].append(format_response(nickname, "Команды отображены."))
+        return jsonify({"status": "helped"})
+
+    if lower.startswith("!set "):
         apply_setting(nickname, text)
         save_config()
-        messages[nickname].append(format_response(nickname, "Настройка обновлена."))
+        messages[nickname].append(format_response(nickname, "Настройки обновлены."))
         return jsonify({"status": "configured"})
 
-    response = loop.run_until_complete(process_message(nickname, text))
-    messages[nickname].append(response)
-    return jsonify({"status": "ok"})
+    asyncio.create_task(handle_async_message(nickname, text))
+    return jsonify({"status": "processing"})
 
 @app.route("/poll", methods=["GET"])
 def poll():
     nickname = request.args.get("nickname", "").lower()
-    print(f"[Poll] Request from: {nickname}")
-
     if nickname not in messages:
-        print("[Poll] No queue for:", nickname)
         return jsonify([])
 
     if messages[nickname]:
-        print("[Poll] Sending message for", nickname)
         return jsonify(messages[nickname].pop(0))
     else:
-        print("[Poll] Empty queue for", nickname)
         return jsonify([])
 
 @app.route("/status", methods=["GET"])
@@ -84,13 +108,14 @@ def apply_setting(nickname, text):
     cfg = player_config[nickname]
     lower = text.lower()
 
-    if "цвет=" in lower:
-        val = text.split("цвет=")[1].split()[0]
-        cfg["color"] = val
+    if "color=" in lower:
+        val = text.split("color=")[1].split()[0]
+        if val in color_table:
+            cfg["color"] = color_table[val]
 
-    if "жирный=да" in lower or "bold=yes" in lower:
+    if "bold=yes" in lower:
         cfg["bold"] = True
-    if "жирный=нет" in lower or "bold=no" in lower:
+    elif "bold=no" in lower:
         cfg["bold"] = False
 
 def format_response(nickname, message):
@@ -107,6 +132,10 @@ def format_response(nickname, message):
         entry["bold"] = True
 
     return [entry]
+
+async def handle_async_message(nickname, text):
+    response = await process_message(nickname, text)
+    messages[nickname].append(response)
 
 async def process_message(nickname, text):
     if nickname not in sessions:
