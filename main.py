@@ -61,16 +61,15 @@ def chat():
 
     lower = text.lower()
 
-    if lower.startswith("!help"):
-        # Выводим цветной список
-        for num, color in color_table.items():
+    # === ЛОКАЛЬНЫЕ КОМАНДЫ ===
+    if lower.strip() == "!help":
+        for num, color in color_table.items() do
             entry = {
                 "text": encode_unicode_escaped(f"[{num}] Пример цвета {color}"),
                 "color": color
             }
             messages[nickname].append([entry])
 
-        # Завершающее сообщение
         messages[nickname].append(format_response(nickname,
             "Команды:\n!set color=<номер>\n!set bold=yes|no\n!help — показать команды"))
         return jsonify({"status": "helped"})
@@ -81,6 +80,7 @@ def chat():
         messages[nickname].append(format_response(nickname, "Настройки обновлены."))
         return jsonify({"status": "configured"})
 
+    # === ВСЁ ОСТАЛЬНОЕ — отправляется персонажу ===
     loop.create_task(handle_async_message(nickname, text))
     return jsonify({"status": "processing"})
 
