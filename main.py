@@ -6,21 +6,17 @@ app = Flask(__name__)
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-# Твой токен и персонаж
 client = loop.run_until_complete(get_client(token="b7f78883b597e751f7d8b3bd39bd254124eb3013"))
 CHARACTER_ID = "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"
 
-# Данные
 sessions = {}         # nickname → chat_id
 messages = {}         # nickname → [response1, response2]
 player_config = {}    # nickname → настройки
 CONFIG_FILE = "player_config.json"
 
-# Юникод
 def encode_unicode_escaped(text):
     return text.encode("unicode_escape").decode("ascii")
 
-# Загрузка/сохранение настроек
 def save_config():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(player_config, f, indent=2)
@@ -36,7 +32,7 @@ load_config()
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
-    nickname = data.get("nickname")
+    nickname = data.get("nickname", "").lower()
     text = data.get("text")
 
     if not nickname or not text:
@@ -57,25 +53,28 @@ def chat():
         messages[nickname].append(format_response(nickname, "Настройка обновлена."))
         return jsonify({"status": "configured"})
 
-    # Отправляем сообщение с ником
     response = loop.run_until_complete(process_message(nickname, text))
     messages[nickname].append(response)
     return jsonify({"status": "ok"})
 
 @app.route("/poll", methods=["GET"])
 def poll():
-    nickname = request.args.get("nickname")
-    if not nickname or nickname not in messages:
+    nickname = request.args.get("nickname", "").lower()
+    print(f"[Poll] Request from: {nickname}")
+
+    if nickname not in messages:
+        print("[Poll] No queue for:", nickname)
         return jsonify([])
 
     if messages[nickname]:
+        print("[Poll] Sending message for", nickname)
         return jsonify(messages[nickname].pop(0))
     else:
+        print("[Poll] Empty queue for", nickname)
         return jsonify([])
 
 @app.route("/status", methods=["GET"])
 def status():
-    # Упрощённо: просто говорит, что всегда готов
     return jsonify({"ready": True})
 
 def apply_setting(nickname, text):
@@ -112,7 +111,6 @@ async def process_message(nickname, text):
         sessions[nickname] = chat.chat_id
 
     chat_id = sessions[nickname]
-    # Отправляем сообщение с ником в сообщении
     user_message = f"{nickname}: {text.lstrip('!')}"
     reply = await client.chat.send_message(CHARACTER_ID, chat_id, user_message)
     ai_text = reply.get_primary_candidate().text
