@@ -42,8 +42,8 @@ def load_config():
 load_config()
 
 @app.route("/chat", methods=["POST"])
-async def chat():
-    data = await request.get_json()
+def chat():
+    data = request.get_json()
     nickname = data.get("nickname", "").lower()
     text = data.get("text")
 
@@ -62,19 +62,17 @@ async def chat():
     lower = text.lower()
 
     if lower.startswith("!help"):
-        help_text = "Команды:\n"
-        help_text += "!set color=<номер> — цвет текста\n"
-        help_text += "!set bold=yes|no — жирный текст\n"
-        help_text += "\nЦвета:\n"
-
+        # Выводим цветной список
         for num, color in color_table.items():
             entry = {
-                "text": encode_unicode_escaped(f"[{num}] Пример текста цвета {color}"),
+                "text": encode_unicode_escaped(f"[{num}] Пример цвета {color}"),
                 "color": color
             }
             messages[nickname].append([entry])
 
-        messages[nickname].append(format_response(nickname, "Команды отображены."))
+        # Завершающее сообщение
+        messages[nickname].append(format_response(nickname,
+            "Команды:\n!set color=<номер>\n!set bold=yes|no\n!help — показать команды"))
         return jsonify({"status": "helped"})
 
     if lower.startswith("!set "):
@@ -83,7 +81,7 @@ async def chat():
         messages[nickname].append(format_response(nickname, "Настройки обновлены."))
         return jsonify({"status": "configured"})
 
-    asyncio.create_task(handle_async_message(nickname, text))
+    loop.create_task(handle_async_message(nickname, text))
     return jsonify({"status": "processing"})
 
 @app.route("/poll", methods=["GET"])
