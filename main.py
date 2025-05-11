@@ -1,4 +1,4 @@
-import asyncio, json, time, os
+import asyncio, json, os
 from flask import Flask, request, jsonify
 from PyCharacterAI import get_client
 
@@ -6,17 +6,21 @@ app = Flask(__name__)
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
+# Твой токен и персонаж
 client = loop.run_until_complete(get_client(token="b7f78883b597e751f7d8b3bd39bd254124eb3013"))
 CHARACTER_ID = "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"
 
+# Данные
 sessions = {}         # nickname → chat_id
 messages = {}         # nickname → [response1, response2]
 player_config = {}    # nickname → настройки
 CONFIG_FILE = "player_config.json"
 
+# Юникод
 def encode_unicode_escaped(text):
     return text.encode("unicode_escape").decode("ascii")
 
+# Загрузка/сохранение настроек
 def save_config():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(player_config, f, indent=2)
@@ -53,6 +57,7 @@ def chat():
         messages[nickname].append(format_response(nickname, "Настройка обновлена."))
         return jsonify({"status": "configured"})
 
+    # Отправляем сообщение с ником
     response = loop.run_until_complete(process_message(nickname, text))
     messages[nickname].append(response)
     return jsonify({"status": "ok"})
@@ -67,6 +72,11 @@ def poll():
         return jsonify(messages[nickname].pop(0))
     else:
         return jsonify([])
+
+@app.route("/status", methods=["GET"])
+def status():
+    # Упрощённо: просто говорит, что всегда готов
+    return jsonify({"ready": True})
 
 def apply_setting(nickname, text):
     cfg = player_config[nickname]
@@ -102,13 +112,12 @@ async def process_message(nickname, text):
         sessions[nickname] = chat.chat_id
 
     chat_id = sessions[nickname]
-    reply = await client.chat.send_message(CHARACTER_ID, chat_id, text)
+    # Отправляем сообщение с ником в сообщении
+    user_message = f"{nickname}: {text.lstrip('!')}"
+    reply = await client.chat.send_message(CHARACTER_ID, chat_id, user_message)
     ai_text = reply.get_primary_candidate().text
     return format_response(nickname, ai_text)
 
 @app.route("/")
 def home():
-    return "CharacterAI Proxy is live!"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    return "✅ Голо-Джон работает!"
