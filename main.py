@@ -75,7 +75,10 @@ def poll():
 
 @app.route("/status", methods=["GET"])
 def status():
-    return jsonify({"ready": True})
+    nickname = request.args.get("nickname", "").lower()
+    if nickname in messages and messages[nickname]:
+        return jsonify({"ready": True})
+    return jsonify({"ready": False})
 
 def apply_setting(nickname, text):
     cfg = player_config[nickname]
