@@ -1,2 +1,3 @@
 flask
 git+https://github.com/Xtr4F/PyCharacterAI.git
+gunicorn
