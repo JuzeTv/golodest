@@ -47,7 +47,7 @@ async def websocket_endpoint(ws: WebSocket):
                     chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                 chats[nick] = chat_obj
 
-                greet = greeting.get_primary_candidate().raw_content
+                greet = greeting.get_primary_candidate().text
                 await ws.send_text(encode_unicode(f"{AI_NAME}>{nick}:{greet}"))
 
             chat_obj = chats[nick]
@@ -57,7 +57,7 @@ async def websocket_endpoint(ws: WebSocket):
                 message=text,
                 streaming=False
             )
-            reply = turn.get_primary_candidate().raw_content
+            reply = turn.get_primary_candidate().text
             await ws.send_text(encode_unicode(f"{AI_NAME}>{nick}:{reply}"))
 
     except WebSocketDisconnect:
