@@ -8,10 +8,10 @@ from PyCharacterAI import get_client
 from PyCharacterAI.exceptions import SessionClosedError
 
 # ─── Конфигурация по ENV ───────────────────────────────────────────────────────
-CHAR_ID    = os.environ['FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU']      # e.g. "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"
+CHAR_ID    = os.environ['CHAR_ID']      # e.g. "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"
 AI_NAME    = os.environ.get('AI_NAME', 'Голо-Джон')
 PORT       = int(os.environ.get('PORT', 8765))
-API_TOKEN  = os.environ['b7f78883b597e751f7d8b3bd39bd254124eb3013']    # ваш API-токен CharacterAI
+API_TOKEN  = os.environ['API_TOKEN']    # ваш API-токен CharacterAI
 # ────────────────────────────────────────────────────────────────────────────────
 
 # Flask для health-check (Render требует «web» сервиса)
