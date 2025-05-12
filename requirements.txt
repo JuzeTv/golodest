@@ -1,3 +1,3 @@
 Flask
 websockets
-charai
+git+https://github.com/acheong08/Characteraiclient.git@main#egg=characteraiclient
