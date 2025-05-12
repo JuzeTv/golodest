@@ -1,3 +1,4 @@
-Flask
+fastapi
+uvicorn[standard]
 websockets
 git+https://github.com/Xtr4F/PyCharacterAI.git
