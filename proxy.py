@@ -2,28 +2,18 @@ import os
 import asyncio
 import json
 import websockets
-from threading import Thread
-from flask import Flask
 from PyCharacterAI import get_client
+from threading import Thread
 from PyCharacterAI.exceptions import SessionClosedError
 
-# ─── Конфигурация по ENV ───────────────────────────────────────────────────────
-CHAR_ID    = os.environ['CHAR_ID']      # e.g. "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"
-AI_NAME    = os.environ.get('AI_NAME', 'Голо-Джон')
-PORT       = int(os.environ.get('PORT', 8765))
-API_TOKEN  = os.environ['API_TOKEN']    # ваш API-токен CharacterAI
+# ─── Конфиг из ENV ────────────────────────────────────────────────────────────
+CHAR_ID   = os.environ['CHAR_ID']
+AI_NAME   = os.environ.get('AI_NAME', 'Голо-Джон')
+PORT      = int(os.environ.get('PORT', 8765))
+API_TOKEN = os.environ['API_TOKEN']
 # ────────────────────────────────────────────────────────────────────────────────
 
-# Flask для health-check (Render требует «web» сервиса)
-app = Flask(__name__)
-@app.route('/')
-def healthcheck():
-    return 'OK', 200
-
-def run_flask():
-    app.run(host='0.0.0.0', port=PORT)
-
-# Unicode-encode/decode (в формате \uXXXX)
+# Unicode <-> \uXXXX
 def encode_unicode(s: str) -> str:
     return ''.join(f"\\u{ord(c):04X}" for c in s)
 
@@ -31,40 +21,32 @@ def decode_unicode(s: str) -> str:
     return s.encode('utf-8').decode('unicode_escape')
 
 async def main():
-    # ─── 1) Аутентифицируемся в CharacterAI ────────────────────────────────────
+    # 1) Авторизуемся в CharacterAI
     client = await get_client(token=API_TOKEN)
-    # Словарь: nick -> PyCharacterAI.Chat объект
+    # nick -> Chat-объект
     chats: dict[str, any] = {}
 
-    # ─── 2) Запускаем Flask в фоне ──────────────────────────────────────────────
-    Thread(target=run_flask, daemon=True).start()
-
-    # ─── 3) WebSocket-сервер ────────────────────────────────────────────────────
+    # 2) Запускаем WebSocket-сервер на порту PORT
     async def handler(ws, path):
-        # Регистрируем нового клиента
-        print("New CC connected")
         try:
             async for raw in ws:
-                # raw: "Nick;\\u...encoded text..."
-                nick, enc_msg = raw.split(';', 1)
-                text = decode_unicode(enc_msg)
+                # raw = "Nick;\\u...."
+                nick, enc = raw.split(';',1)
+                text = decode_unicode(enc)
 
-                # Если ещё нет чата — создаем новую ветку
+                # если новой ветки — создаём чат и шлём привет
                 if nick not in chats:
                     try:
                         chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                     except SessionClosedError:
-                        # Сессия могла закрыться, заново аутентифицируем
                         client = await get_client(token=API_TOKEN)
                         chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                     chats[nick] = chat_obj
-                    # Можно разослать приветствие:
-                    greeting_text = greeting.get_primary_candidate().text
-                    payload = f"{AI_NAME}>{nick}:{greeting_text}"
-                    enc_out = encode_unicode(payload)
-                    await ws.send(enc_out)
+                    greet = greeting.get_primary_candidate().text
+                    out = f"{AI_NAME}>{nick}:{greet}"
+                    await ws.send(encode_unicode(out))
 
-                # Отправляем сообщение и ждём ответа
+                # отправляем сообщение в существующий чат
                 chat_obj = chats[nick]
                 turn = await client.chat.send_message(
                     character_id=CHAR_ID,
@@ -73,18 +55,14 @@ async def main():
                     streaming=False
                 )
                 reply = turn.get_primary_candidate().text
-
-                # Формируем и отсылаем ответ всем CC (broadcast)
                 out = f"{AI_NAME}>{nick}:{reply}"
-                enc_out = encode_unicode(out)
-                await ws.send(enc_out)
+                await ws.send(encode_unicode(out))
+
         except websockets.exceptions.ConnectionClosed:
             pass
-        finally:
-            print("CC disconnected")
 
     server = await websockets.serve(handler, '0.0.0.0', PORT)
-    print(f"WebSocket server running on port {PORT}")
+    print(f"WebSocket server listening on port {PORT}")
     await server.wait_closed()
 
 if __name__ == '__main__':
