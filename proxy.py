@@ -2,18 +2,18 @@ import os
 import asyncio
 import json
 import websockets
-from flask import Flask, request, jsonify
+from flask import Flask
 from threading import Thread
 from charai import CharAI
 
 # Переменные окружения
-CHAR_ID = os.environ['FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU']
-AI_NAME = os.environ.get('AI_NAME', 'Голо-Джон')
-PORT = int(os.environ.get('PORT', 8765))
-COOKIE_PATH = os.environ.get('COOKIE_PATH', 'cookies.json')
+CHAR_ID    = os.environ['FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU']
+AI_NAME    = os.environ.get('AI_NAME', 'Голо-Джон')
+PORT       = int(os.environ.get('PORT', 8765))
+API_TOKEN  = os.environ['b7f78883b597e751f7d8b3bd39bd254124eb3013']
 
 # CharacterAI клиент
-client = CharAI(cookie_path=COOKIE_PATH)
+client = CharAI(api_token=API_TOKEN)
 # Храним все WebSocket-соединения
 clients = set()
 
