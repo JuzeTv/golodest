@@ -1,91 +1,111 @@
-# proxy.py
-import os
-import asyncio
+import os, asyncio, re
+from queue import Queue
+from threading import Thread
 from typing import Dict
+from http import HTTPStatus
+import websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
+from mcrcon import MCRcon
 from PyCharacterAI import get_client
 from PyCharacterAI.exceptions import SessionClosedError
 
-# ─── Настройки из ENV ─────────────────────────────────────────────────────────
-CHAR_ID   = os.environ['CHAR_ID']
-API_TOKEN = os.environ['API_TOKEN']
-AI_NAME   = os.environ.get('AI_NAME', 'Голо-Джон')
+# ─── Конфиг через ENV ─────────────────────────────────────────────────────────
+RCON_HOST     = os.environ['RCON_HOST']
+RCON_PORT     = int(os.environ.get('RCON_PORT', 25737))
+RCON_PASS     = os.environ['RCON_PASS']
+CHAR_ID       = os.environ['CHAR_ID']
+API_TOKEN     = os.environ['API_TOKEN']
+AI_NAME       = os.environ.get('AI_NAME', 'Голо-Джон')
+WS_PORT       = int(os.environ.get('PORT', 8765))
+POLL_LOGS_CMD = os.environ.get('POLL_LOGS_CMD', 'logs last')
 # ────────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
+chat_re = re.compile(r'^<([^>]+)>\s*!(.+)$')
 
-# GET/HEAD /                      ← health-check от Render
+# health-checks:
 @app.get("/", response_class=PlainTextResponse)
 @app.head("/", response_class=PlainTextResponse)
-async def healthcheck():
-    return "OK"
+async def hc(): return "OK"
 
-# GET/HEAD /ws                   ← чтобы HEAD/GET на /ws тоже не падали
-@app.get("/ws", response_class=PlainTextResponse)
-@app.head("/ws", response_class=PlainTextResponse)
-async def ws_healthcheck():
-    return "OK"
-
-# хранилище чат-веток: nick → Chat
+# очередь никнеймов
+signal_queue: "Queue[str]" = Queue()
+# все WS клиенты
+clients: set[WebSocket] = set()
+# память веток чата
 chats: Dict[str, any] = {}
+# CharacterAI client
 client = None
 
-# при старте инициализируем CharacterAI-клиент
 @app.on_event("startup")
-async def startup_event():
+async def startup():
     global client
     client = await get_client(token=API_TOKEN)
+    # фоновый RCON-пуллер в отдельном потоке
+    Thread(target=lambda: asyncio.run(rcon_worker()), daemon=True).start()
+
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    await ws.accept()
+    clients.add(ws)
+    try:
+        while True:
+            # ждем сигнал в формате "Nick"
+            raw = await ws.receive_text()
+            signal_queue.put(raw)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        clients.discard(ws)
 
 def encode_unicode(s: str) -> str:
     return "".join(f"\\u{ord(c):04X}" for c in s)
 
 def decode_unicode(s: str) -> str:
-    return s.encode("utf-8").decode("unicode_escape")
+    return s.encode('utf-8').decode('unicode_escape')
 
-# WebSocket-эндпоинт для CC-ПК
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws.accept()
-    try:
+async def rcon_worker():
+    """Постоянно ждем сигналы, читаем логи RCON и пушим ответы."""
+    global client, chats
+    # подключаем CharacterAI, RCON в одном потоке
+    async with MCRcon(RCON_HOST, RCON_PASS, port=RCON_PORT) as rcon:
         while True:
-            raw = await ws.receive_text()
-            # формат raw: "Nick;\uXXXX\uYYYY..."
-            try:
-                nick, enc = raw.split(";", 1)
-            except ValueError:
+            nick = signal_queue.get()  # блокирующий
+            # читаем последние строки лога
+            resp = rcon.command(POLL_LOGS_CMD)
+            text = None
+            for line in reversed(resp.splitlines()):
+                m = chat_re.match(line)
+                if m and m.group(1) == nick:
+                    text = m.group(2).strip()
+                    break
+            if not text:
                 continue
-            text = decode_unicode(enc)
-
-            # создаём ветку, если её нет
+            # ветка чата
             if nick not in chats:
                 try:
                     chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                 except SessionClosedError:
-                    await startup_event()
+                    client = await get_client(token=API_TOKEN)
                     chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                 chats[nick] = chat_obj
-                greet = greeting.get_primary_candidate().text
-                payload = encode_unicode(f"{AI_NAME}>{nick}: {greet}")
-                await ws.send_text(payload)
-
-            # отправляем текст и ждём ответа
+            # шлём текст в AI
             chat_obj = chats[nick]
             turn = await client.chat.send_message(
                 character_id=CHAR_ID,
                 chat_id=chat_obj.chat_id,
-                text=text,
-                streaming=False
+                text=text, streaming=False
             )
             reply = turn.get_primary_candidate().text
             payload = encode_unicode(f"{AI_NAME}>{nick}: {reply}")
-            await ws.send_text(payload)
-
-    except WebSocketDisconnect:
-        # клиент отключился, просто завершаем
-        pass
+            # пуш всем WS клиентам
+            for ws in list(clients):
+                try:
+                    await ws.send_text(payload)
+                except:
+                    clients.discard(ws)
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8765))
-    uvicorn.run("proxy:app", host="0.0.0.0", port=port)
+    uvicorn.run("proxy:app", host="0.0.0.0", port=WS_PORT)
