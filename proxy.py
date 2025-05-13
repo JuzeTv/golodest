@@ -7,10 +7,10 @@ from fastapi.responses import PlainTextResponse
 from PyCharacterAI import get_client
 from PyCharacterAI.exceptions import SessionClosedError
 
-# ─── Конфигурация из ENV ───────────────────────────────────────────────────────
-CHAR_ID   = os.environ['CHAR_ID']
-AI_NAME   = os.environ.get('AI_NAME', 'Голо-Джон')
-API_TOKEN = os.environ['API_TOKEN']
+# ─── Конфигурация через ENV ────────────────────────────────────────────────────
+CHAR_ID   = os.environ['CHAR_ID']                    # ваш CharacterAI character_id
+AI_NAME   = os.environ.get('AI_NAME', 'Голо-Джон')    # отображаемое имя бота
+API_TOKEN = os.environ['API_TOKEN']                  # ваш API-токен CharacterAI
 # ────────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
@@ -49,19 +49,26 @@ async def websocket_endpoint(ws: WebSocket):
                     await startup_event()
                     chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                 chats[nick] = chat_obj
+
                 greet = greeting.get_primary_candidate().text
-                await ws.send_text(encode_unicode(f"{AI_NAME}>{nick}:{greet}"))
+                payload = encode_unicode(f"{AI_NAME}>{nick}:{greet}")
+                # обёртываем в JSON-строку
+                await ws.send_text(json.dumps(payload))
 
             chat_obj = chats[nick]
-            # Вот здесь важно: используем text=, а не message=
             turn = await client.chat.send_message(
                 character_id=CHAR_ID,
                 chat_id=chat_obj.chat_id,
-                text=text,           # <-- исправлено
+                text=text,
                 streaming=False
             )
             reply = turn.get_primary_candidate().text
-            await ws.send_text(encode_unicode(f"{AI_NAME}>{nick}:{reply}"))
+            payload = encode_unicode(f"{AI_NAME}>{nick}:{reply}")
+            await ws.send_text(json.dumps(payload))
 
     except WebSocketDisconnect:
         pass
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("proxy:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8765)))
