@@ -1,4 +1,5 @@
 fastapi
 uvicorn[standard]
 websockets
+mcrcon
 git+https://github.com/Xtr4F/PyCharacterAI.git
