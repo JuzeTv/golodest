@@ -7,9 +7,11 @@ from fastapi.responses import PlainTextResponse
 from PyCharacterAI import get_client
 from PyCharacterAI.exceptions import SessionClosedError
 
+# ─── Конфигурация из ENV ───────────────────────────────────────────────────────
 CHAR_ID   = os.environ['CHAR_ID']
 AI_NAME   = os.environ.get('AI_NAME', 'Голо-Джон')
 API_TOKEN = os.environ['API_TOKEN']
+# ────────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
 
@@ -17,6 +19,7 @@ app = FastAPI()
 async def healthcheck():
     return "OK"
 
+# nick → Chat-объект
 chats: Dict[str, any] = {}
 
 @app.on_event("startup")
@@ -46,15 +49,15 @@ async def websocket_endpoint(ws: WebSocket):
                     await startup_event()
                     chat_obj, greeting = await client.chat.create_chat(CHAR_ID)
                 chats[nick] = chat_obj
-
                 greet = greeting.get_primary_candidate().text
                 await ws.send_text(encode_unicode(f"{AI_NAME}>{nick}:{greet}"))
 
             chat_obj = chats[nick]
+            # Вот здесь важно: используем text=, а не message=
             turn = await client.chat.send_message(
                 character_id=CHAR_ID,
                 chat_id=chat_obj.chat_id,
-                message=text,
+                text=text,           # <-- исправлено
                 streaming=False
             )
             reply = turn.get_primary_candidate().text
