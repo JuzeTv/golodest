@@ -1,4 +1,5 @@
 fastapi
 uvicorn
-httpx
-git+https://github.com/Xtr4F/PyCharacterAI.git
+aiofiles
+python-multipart
+git+https://github.com/Xtr4F/PyCharacterAI
