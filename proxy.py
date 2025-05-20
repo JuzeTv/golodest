@@ -29,7 +29,7 @@ client = Client()
 async def startup_event():
     await client.authenticate(TOKEN)
     me = await client.account.fetch_me()
-    app.state.me_id = me.id
+    app.state.me_id = me["user"]["user_id"]
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
