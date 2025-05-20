@@ -1,28 +1,35 @@
+import json
+import asyncio
 from fastapi import FastAPI, Request
-import json, asyncio
+from PyCharacterAI import Client
 import httpx
-from characterai import aiocai
 
 app = FastAPI()
 
 # Загрузка или инициализация данных
 try:
-    colors = json.load(open("colors.json"))
+    with open("colors.json", "r") as f:
+        colors = json.load(f)
 except FileNotFoundError:
     colors = {}
+
 try:
-    sessions = json.load(open("sessions.json"))
+    with open("sessions.json", "r") as f:
+        sessions = json.load(f)
 except FileNotFoundError:
     sessions = {}
 
-CHAR_ID = "CHARACTER_ID"   # ID персонажа на CharacterAI
-client = aiocai.Client("YOUR_TOKEN")  # инициализируем клиент PyCharacterAI
+CHARACTER_ID = "FzR07mdYrvSNH57vhc3ttvF4ZA96tKuRnyiNNzTfzlU"  # Замените на ID вашего персонажа
+TOKEN = "b7f78883b597e751f7d8b3bd39bd254124eb3013"  # Замените на ваш токен CharacterAI
+MC_SERVER_URL = "http://pulsar.minerent.net:25609/proxy-response"  # Замените на URL вашего Minecraft-сервера
+
+client = Client()
 
 @app.on_event("startup")
-async def startup():
-    me = await client.get_me()  # получаем информацию о себе
+async def startup_event():
+    await client.authenticate(TOKEN)
+    me = await client.account.fetch_me()
     app.state.me_id = me.id
-    # Мы можем заранее открыть соединение, если нужно.
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
@@ -32,36 +39,36 @@ async def chat_endpoint(request: Request):
         return {"error": "Invalid format"}
     nick, message = text.split(";", 1)
 
-    # Обработка команды цвета
+    # Обработка команды изменения цвета
     if message.startswith("!color set="):
-        color = message.split("=",1)[1]
+        color = message.split("=", 1)[1]
         colors[nick] = color
-        with open("colors.json","w") as f:
-            json.dump(colors, f)  # сохраняем в файл:contentReference[oaicite:14]{index=14}
+        with open("colors.json", "w") as f:
+            json.dump(colors, f)
         return {"status": "color saved"}
 
-    # Обычное сообщение: обращаемся к CharacterAI
-    me_id = app.state.me_id
-    async with await client.connect() as chat:
-        if nick not in sessions:
-            # Новая сессия для игрока
-            new_chat, answer = await chat.new_chat(CHAR_ID, me_id)  # создаём чат:contentReference[oaicite:15]{index=15}
-            sessions[nick] = new_chat.chat_id
-            ai_response = answer.text
-        else:
-            # Существующая сессия
-            chat_id = sessions[nick]
-            message_obj = await chat.send_message(CHAR_ID, chat_id, message)  # отправляем текст:contentReference[oaicite:16]{index=16}
-            ai_response = message_obj.text
+    # Форматирование сообщения для CharacterAI
+    formatted_message = f"{nick}: {message}"
 
-    # Сохраняем обновлённые сессии
-    with open("sessions.json","w") as f:
-        json.dump(sessions, f)
+    # Получение или создание сессии чата
+    if nick not in sessions:
+        chat, _ = await client.chat.create_chat(CHARACTER_ID)
+        sessions[nick] = chat.external_id
+        with open("sessions.json", "w") as f:
+            json.dump(sessions, f)
+    else:
+        chat = await client.chat.get_chat(CHARACTER_ID, history_external_id=sessions[nick])
 
-    # Отправляем ответ NPC обратно в Minecraft (HTTP POST)
-    mc_url = "http://MC_SERVER_ADDRESS/proxy-response"
-    payload = {"message": f">{nick}: {ai_response}", "color": colors.get(nick, "f")}
+    # Отправка сообщения и получение ответа
+    response = await chat.send(formatted_message)
+    ai_response = response['replies'][0]['text']
+
+    # Отправка ответа обратно в Minecraft
+    payload = {
+        "message": f">{nick}: {ai_response}",
+        "color": colors.get(nick, "f")
+    }
     async with httpx.AsyncClient() as http_client:
-        await http_client.post(mc_url, json=payload)  # асинхронный POST:contentReference[oaicite:17]{index=17}
+        await http_client.post(MC_SERVER_URL, json=payload)
 
     return {"status": "message sent"}
